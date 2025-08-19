@@ -41,35 +41,19 @@
       }
     },
     "openai": {
-      "default_model": "gpt-5-nano",
+      "client_class": "OpenAIClient",
+      "default_model": "${GENERATOR_MODEL_NAME}",
       "supportsCustomModel": true,
+      "initialize_kwargs": {
+        "api_key": "${GENERATOR_API_KEY}",
+        "base_url": "${GENERATOR_BASE_URL}",
+        "env_api_key_name": "GENERATOR_API_KEY",
+        "env_base_url_name": "GENERATOR_BASE_URL"
+      },
       "models": {
-        "gpt-5": {
-          "temperature": 1.0
-        },
-        "gpt-5-nano": {
-          "temperature": 1.0
-        },
-        "gpt-5-mini": {
-          "temperature": 1.0
-        },
-        "gpt-4o": {
+        "${GENERATOR_MODEL_NAME}": {
           "temperature": 0.7,
           "top_p": 0.8
-        },
-        "gpt-4.1": {
-          "temperature": 0.7,
-          "top_p": 0.8
-        },
-        "o1": {
-          "temperature": 0.7,
-          "top_p": 0.8
-        },
-        "o3": {
-          "temperature": 1.0
-        },
-        "o4-mini": {
-          "temperature": 1.0
         }
       }
     },

@@ -4,6 +4,10 @@ import logging
 import re
 from pathlib import Path
 from typing import List, Union, Dict, Any
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +27,15 @@ AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
 AWS_REGION = os.environ.get('AWS_REGION')
 AWS_ROLE_ARN = os.environ.get('AWS_ROLE_ARN')
 
+# 自定义OpenAI兼容API配置
+EMBEDDING_API_KEY = os.environ.get('EMBEDDING_API_KEY', os.environ.get('OPENAI_API_KEY'))
+EMBEDDING_BASE_URL = os.environ.get('EMBEDDING_BASE_URL', 'https://api.openai.com/v1')
+EMBEDDING_MODEL_NAME = os.environ.get('EMBEDDING_MODEL_NAME', 'text-embedding-3-small')
+
+GENERATOR_API_KEY = os.environ.get('GENERATOR_API_KEY', os.environ.get('OPENAI_API_KEY'))
+GENERATOR_BASE_URL = os.environ.get('GENERATOR_BASE_URL', 'https://api.openai.com/v1')
+GENERATOR_MODEL_NAME = os.environ.get('GENERATOR_MODEL_NAME', 'gpt-5-nano')
+
 # Set keys in environment (in case they're needed elsewhere in the code)
 if OPENAI_API_KEY:
     os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
@@ -38,6 +51,20 @@ if AWS_REGION:
     os.environ["AWS_REGION"] = AWS_REGION
 if AWS_ROLE_ARN:
     os.environ["AWS_ROLE_ARN"] = AWS_ROLE_ARN
+
+# 设置自定义API配置的环境变量
+if EMBEDDING_API_KEY:
+    os.environ["EMBEDDING_API_KEY"] = EMBEDDING_API_KEY
+if EMBEDDING_BASE_URL:
+    os.environ["EMBEDDING_BASE_URL"] = EMBEDDING_BASE_URL
+if EMBEDDING_MODEL_NAME:
+    os.environ["EMBEDDING_MODEL_NAME"] = EMBEDDING_MODEL_NAME
+if GENERATOR_API_KEY:
+    os.environ["GENERATOR_API_KEY"] = GENERATOR_API_KEY
+if GENERATOR_BASE_URL:
+    os.environ["GENERATOR_BASE_URL"] = GENERATOR_BASE_URL
+if GENERATOR_MODEL_NAME:
+    os.environ["GENERATOR_MODEL_NAME"] = GENERATOR_MODEL_NAME
 
 # Wiki authentication settings
 raw_auth_mode = os.environ.get('DEEPWIKI_AUTH_MODE', 'False')
@@ -61,7 +88,7 @@ CLIENT_CLASSES = {
 def replace_env_placeholders(config: Union[Dict[str, Any], List[Any], str, Any]) -> Union[Dict[str, Any], List[Any], str, Any]:
     """
     Recursively replace placeholders like "${ENV_VAR}" in string values
-    within a nested configuration structure (dicts, lists, strings)
+    and dictionary keys within a nested configuration structure (dicts, lists, strings)
     with environment variable values. Logs a warning if a placeholder is not found.
     """
     pattern = re.compile(r"\$\{([A-Z0-9_]+)\}")
@@ -79,7 +106,12 @@ def replace_env_placeholders(config: Union[Dict[str, Any], List[Any], str, Any])
         return env_var_value
 
     if isinstance(config, dict):
-        return {k: replace_env_placeholders(v) for k, v in config.items()}
+        new_dict = {}
+        for k, v in config.items():
+            new_key = pattern.sub(replacer, str(k))
+            new_value = replace_env_placeholders(v)
+            new_dict[new_key] = new_value
+        return new_dict
     elif isinstance(config, list):
         return [replace_env_placeholders(item) for item in config]
     elif isinstance(config, str):
