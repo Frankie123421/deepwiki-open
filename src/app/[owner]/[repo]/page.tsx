@@ -173,6 +173,18 @@ const createBitbucketHeaders = (bitbucketToken: string): HeadersInit => {
   return headers;
 };
 
+const createGiteeHeaders = (giteeToken: string): HeadersInit => {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+
+  if (giteeToken) {
+    headers['Authorization'] = `Bearer ${giteeToken}`;
+  }
+
+  return headers;
+};
+
 
 export default function RepoWikiPage() {
   // Get route parameters and search params
@@ -187,6 +199,7 @@ export default function RepoWikiPage() {
   const token = searchParams.get('token') || '';
   const localPath = searchParams.get('local_path') ? decodeURIComponent(searchParams.get('local_path') || '') : undefined;
   const repoUrl = searchParams.get('repo_url') ? decodeURIComponent(searchParams.get('repo_url') || '') : undefined;
+  const branchParam = searchParams.get('branch') || '';
   const providerParam = searchParams.get('provider') || '';
   const modelParam = searchParams.get('model') || '';
   const isCustomModelParam = searchParams.get('is_custom_model') === 'true';
@@ -198,7 +211,9 @@ export default function RepoWikiPage() {
       ? 'gitlab'
       : repoUrl?.includes('github.com')
         ? 'github'
-        : searchParams.get('type') || 'github';
+        : repoUrl?.includes('gitee.com')
+          ? 'gitee'
+          : searchParams.get('type') || 'github';
 
   // Import language context for translations
   const { messages } = useLanguage();
@@ -299,6 +314,10 @@ export default function RepoWikiPage() {
       } else if (hostname === 'bitbucket.org' || hostname.includes('bitbucket')) {
         // Bitbucket URL format: https://bitbucket.org/owner/repo/src/branch/path
         return `${repoUrl}/src/${defaultBranch}/${filePath}`;
+      } else if (hostname === 'gitee.com' || hostname.includes('gitee')) {
+        // Gitee URL format: https://gitee.com/owner/repo/blob/branch/path
+        // API base URL is https://gitee.com/api/v5
+        return `${repoUrl}/blob/${defaultBranch}/${filePath}`;
       }
     } catch (error) {
       console.warn('Error generating file URL:', error);
@@ -1453,6 +1472,81 @@ IMPORTANT:
           console.warn('Could not fetch Bitbucket README.md, continuing with empty README', err);
         }
       }
+      else if (effectiveRepoInfo.type === 'gitee') {
+        // Gitee API approach
+        const projectPath = extractUrlPath(effectiveRepoInfo.repoUrl ?? '') ?? `${owner}/${repo}`;
+        // For Gitee API, don't URL encode the owner/repo path
+        const apiProjectPath = projectPath;
+
+        const headers = createGiteeHeaders(currentToken);
+
+        // Try to get the file tree and repository info
+        let filesData = null;
+        let apiErrorDetails = '';
+        let defaultBranchLocal = 'main';
+
+        // First get project info to determine default branch
+        const projectInfoUrl = `https://gitee.com/api/v5/repos/${apiProjectPath}`;
+        try {
+          const response = await fetch(projectInfoUrl, { headers });
+
+          if (response.ok) {
+            const projectData = await response.json();
+            defaultBranchLocal = projectData.default_branch || 'master';
+            // Store the default branch in state
+            setDefaultBranch(defaultBranchLocal);
+
+            // Get repository tree
+            const apiUrl = `https://gitee.com/api/v5/repos/${apiProjectPath}/git/trees/${defaultBranchLocal}?recursive=1`;
+            try {
+              const treeResponse = await fetch(apiUrl, { headers });
+
+              if (treeResponse.ok) {
+                filesData = await treeResponse.json();
+              } else {
+                const errorData = await treeResponse.text();
+                apiErrorDetails = `Status: ${treeResponse.status}, Response: ${errorData}`;
+              }
+            } catch (err) {
+              console.error(`Network error fetching Gitee branch ${defaultBranchLocal}:`, err);
+            }
+          } else {
+            const errorData = await response.text();
+            apiErrorDetails = `Status: ${response.status}, Response: ${errorData}`;
+          }
+        } catch (err) {
+          console.error("Network error fetching Gitee project info:", err);
+        }
+
+        if (!filesData || !filesData.tree) {
+          if (apiErrorDetails) {
+            throw new Error(`Could not fetch repository structure. Gitee API Error: ${apiErrorDetails}`);
+          } else {
+            throw new Error('Could not fetch repository structure. Repository might not exist, be empty or private.');
+          }
+        }
+
+        // Convert tree data to a string representation
+        fileTreeData = filesData.tree
+          .filter((item: { type: string; path: string }) => item.type === 'blob')
+          .map((item: { type: string; path: string }) => item.path)
+          .join('\n');
+
+        // Try to fetch README.md content
+        try {
+          const readmeUrl = `https://gitee.com/api/v5/repos/${apiProjectPath}/readme`;
+          const readmeResponse = await fetch(readmeUrl, { headers });
+
+          if (readmeResponse.ok) {
+            const readmeData = await readmeResponse.json();
+            readmeContent = atob(readmeData.content);
+          } else {
+            console.warn(`Could not fetch Gitee README.md, status: ${readmeResponse.status}`);
+          }
+        } catch (err) {
+          console.warn('Could not fetch Gitee README.md, continuing with empty README', err);
+        }
+      }
 
       // Now determine the wiki structure
       await determineWikiStructure(fileTreeData, readmeContent, owner, repo);
@@ -2000,7 +2094,7 @@ IMPORTANT:
               {embeddingError ? (
                 messages.repoPage?.embeddingErrorDefault || 'This error is related to the document embedding system used for analyzing your repository. Please verify your embedding model configuration, API keys, and try again. If the issue persists, consider switching to a different embedding provider in the model settings.'
               ) : (
-                messages.repoPage?.errorMessageDefault || 'Please check that your repository exists and is public. Valid formats are "owner/repo", "https://github.com/owner/repo", "https://gitlab.com/owner/repo", "https://bitbucket.org/owner/repo", or local folder paths like "C:\\path\\to\\folder" or "/path/to/folder".'
+                messages.repoPage?.errorMessageDefault || 'Please check that your repository exists and is public. Valid formats are "owner/repo", "https://github.com/owner/repo", "https://gitlab.com/owner/repo", "https://bitbucket.org/owner/repo", "https://gitee.com/owner/repo", or local folder paths like "C:\\path\\to\\folder" or "/path/to/folder".'
               )}
             </p>
             <div className="mt-5">
@@ -2033,6 +2127,8 @@ IMPORTANT:
                       <FaGithub className="mr-2" />
                     ) : effectiveRepoInfo.type === 'gitlab' ? (
                       <FaGitlab className="mr-2" />
+                    ) : effectiveRepoInfo.type === 'gitee' ? (
+                      <FaGithub className="mr-2" />
                     ) : (
                       <FaBitbucket className="mr-2" />
                     )}
@@ -2172,7 +2268,7 @@ IMPORTANT:
       <footer className="max-w-[90%] xl:max-w-[1400px] mx-auto mt-8 flex flex-col gap-4 w-full">
         <div className="flex justify-between items-center gap-4 text-center text-[var(--muted)] text-sm h-fit w-full bg-[var(--card-bg)] rounded-lg p-3 shadow-sm border border-[var(--border-color)]">
           <p className="flex-1 font-serif">
-            {messages.footer?.copyright || 'DeepWiki - Generate Wiki from GitHub/Gitlab/Bitbucket repositories'}
+            {messages.footer?.copyright || 'DeepWiki - Generate Wiki from GitHub/GitLab/Bitbucket/Gitee repositories'}
           </p>
           <ThemeToggle />
         </div>
@@ -2243,7 +2339,7 @@ IMPORTANT:
         onApply={confirmRefresh}
         showWikiType={true}
         showTokenInput={effectiveRepoInfo.type !== 'local' && !currentToken} // Show token input if not local and no current token
-        repositoryType={effectiveRepoInfo.type as 'github' | 'gitlab' | 'bitbucket'}
+        repositoryType={effectiveRepoInfo.type as 'github' | 'gitlab' | 'bitbucket' | 'gitee'}
         authRequired={authRequired}
         authCode={authCode}
         setAuthCode={setAuthCode}

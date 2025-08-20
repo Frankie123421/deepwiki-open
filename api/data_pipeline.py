@@ -91,10 +91,14 @@ def download_repo(repo_url: str, local_path: str, type: str = "github", access_t
         if access_token:
             parsed = urlparse(repo_url)
             # Determine the repository type and format the URL accordingly
-            if type == "github":
-                # Format: https://{token}@{domain}/owner/repo.git
-                # Works for both github.com and enterprise GitHub domains
-                clone_url = urlunparse((parsed.scheme, f"{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
+            if type == "github" or type == "gitee":
+                # Format for GitHub: https://{token}@{domain}/owner/repo.git
+                # Format for Gitee: https://owner:{token}@{domain}/owner/repo.git
+                if type == "github":
+                    clone_url = urlunparse((parsed.scheme, f"{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
+                else:  # gitee
+                    owner = parsed.path.split('/')[1]  # Extract owner from path
+                    clone_url = urlunparse((parsed.scheme, f"{owner}:{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
             elif type == "gitlab":
                 # Format: https://oauth2:{token}@gitlab.com/owner/repo.git
                 clone_url = urlunparse((parsed.scheme, f"oauth2:{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
@@ -490,6 +494,76 @@ def get_github_file_content(repo_url: str, file_path: str, access_token: str = N
     except Exception as e:
         raise ValueError(f"Failed to get file content: {str(e)}")
 
+def get_gitee_file_content(repo_url: str, file_path: str, access_token: str = None) -> str:
+    """
+    Retrieves the content of a file from a Gitee repository using the Gitee API.
+    Follows similar pattern to GitHub API implementation.
+    
+    Args:
+        repo_url (str): The URL of the Gitee repository (e.g., "https://gitee.com/username/repo")
+        file_path (str): The path to the file within the repository (e.g., "src/main.py")
+        access_token (str, optional): Gitee personal access token for private repositories
+
+    Returns:
+        str: The content of the file as a string
+
+    Raises:
+        ValueError: If the file cannot be fetched or if the URL is not a valid Gitee URL
+    """
+    try:
+        # Parse the repository URL
+        parsed_url = urlparse(repo_url)
+        if not parsed_url.scheme or not parsed_url.netloc or "gitee.com" not in parsed_url.netloc:
+            raise ValueError("Not a valid Gitee repository URL")
+
+        # Extract owner and repo from URL
+        path_parts = parsed_url.path.strip('/').split('/')
+        if len(path_parts) < 2:
+            raise ValueError("Invalid Gitee URL format - expected format: https://gitee.com/owner/repo")
+
+        owner = path_parts[-2]
+        repo = path_parts[-1].replace(".git", "")
+
+        # Gitee API base URL
+        api_base = "https://gitee.com/api/v5"
+        
+        # API endpoint for getting file content (same structure as GitHub)
+        api_url = f"{api_base}/repos/{owner}/{repo}/contents/{file_path}"
+
+        # Fetch file content from Gitee API
+        headers = {}
+        if access_token:
+            headers["Authorization"] = f"token {access_token}"
+        
+        logger.info(f"Fetching file content from Gitee API: {api_url}")
+        try:
+            response = requests.get(api_url, headers=headers)
+            response.raise_for_status()
+        except RequestException as e:
+            raise ValueError(f"Error fetching file content: {e}")
+        
+        try:
+            content_data = response.json()
+        except json.JSONDecodeError:
+            raise ValueError("Invalid response from Gitee API")
+
+        # Check if we got an error response
+        if "message" in content_data:
+            raise ValueError(f"Gitee API error: {content_data['message']}")
+
+        # Gitee API returns file content as base64 encoded string (same as GitHub)
+        if "content" in content_data and "encoding" in content_data:
+            if content_data["encoding"] == "base64":
+                content = base64.b64decode(content_data["content"]).decode("utf-8")
+                return content
+            else:
+                raise ValueError(f"Unexpected encoding: {content_data['encoding']}")
+        else:
+            raise ValueError("File content not found in Gitee API response")
+
+    except Exception as e:
+        raise ValueError(f"Failed to get file content: {str(e)}")
+
 def get_gitlab_file_content(repo_url: str, file_path: str, access_token: str = None) -> str:
     """
     Retrieves the content of a file from a GitLab repository (cloud or self-hosted).
@@ -649,6 +723,28 @@ def get_bitbucket_file_content(repo_url: str, file_path: str, access_token: str 
 
 
 def get_file_content(repo_url: str, file_path: str, type: str = "github", access_token: str = None) -> str:
+    """
+    Gets file content from a repository based on the repository type.
+    
+    Args:
+        repo_url (str): Repository URL
+        file_path (str): Path to file in repository
+        type (str): Repository type (github/gitlab/bitbucket/gitee)
+        access_token (str, optional): Access token for private repositories
+        
+    Returns:
+        str: File content
+    """
+    if type == "github":
+        return get_github_file_content(repo_url, file_path, access_token)
+    elif type == "gitlab":
+        return get_gitlab_file_content(repo_url, file_path, access_token)
+    elif type == "bitbucket":
+        return get_bitbucket_file_content(repo_url, file_path, access_token)
+    elif type == "gitee":
+        return get_gitee_file_content(repo_url, file_path, access_token)
+    else:
+        raise ValueError(f"Unsupported repository type: {type}")
     """
     Retrieves the content of a file from a Git repository (GitHub or GitLab).
 
