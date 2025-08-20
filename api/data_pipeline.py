@@ -57,7 +57,7 @@ def count_tokens(text: str, is_ollama_embedder: bool = None) -> int:
 
 def download_repo(repo_url: str, local_path: str, type: str = "github", access_token: str = None, branch: str = None) -> str:
     """
-    Downloads a Git repository (GitHub, GitLab, or Bitbucket) to a specified local path.
+    Downloads a Git repository (GitHub, GitLab, Bitbucket or Gitee) to a specified local path.
 
     Args:
         repo_url (str): The URL of the Git repository to clone.
@@ -92,20 +92,19 @@ def download_repo(repo_url: str, local_path: str, type: str = "github", access_t
         if access_token:
             parsed = urlparse(repo_url)
             # Determine the repository type and format the URL accordingly
-            if type == "github" or type == "gitee":
+            if type == "github":
                 # Format for GitHub: https://{token}@{domain}/owner/repo.git
-                # Format for Gitee: https://owner:{token}@{domain}/owner/repo.git
-                if type == "github":
-                    clone_url = urlunparse((parsed.scheme, f"{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
-                else:  # gitee
-                    owner = parsed.path.split('/')[1]  # Extract owner from path
-                    clone_url = urlunparse((parsed.scheme, f"{owner}:{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
+                clone_url = urlunparse((parsed.scheme, f"{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
             elif type == "gitlab":
                 # Format: https://oauth2:{token}@gitlab.com/owner/repo.git
                 clone_url = urlunparse((parsed.scheme, f"oauth2:{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
             elif type == "bitbucket":
                 # Format: https://x-token-auth:{token}@bitbucket.org/owner/repo.git
                 clone_url = urlunparse((parsed.scheme, f"x-token-auth:{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
+            elif type == "gitee":
+                # Format for Gitee: https://owner:{token}@{domain}/owner/repo.git
+                owner = parsed.path.split('/')[1]  # Extract owner from path
+                clone_url = urlunparse((parsed.scheme, f"{owner}:{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
 
             logger.info("Using access token for authentication")
 
@@ -755,28 +754,6 @@ def get_file_content(repo_url: str, file_path: str, type: str = "github", access
         return get_gitee_file_content(repo_url, file_path, access_token)
     else:
         raise ValueError(f"Unsupported repository type: {type}")
-    """
-    Retrieves the content of a file from a Git repository (GitHub or GitLab).
-
-    Args:
-        repo_url (str): The URL of the repository
-        file_path (str): The path to the file within the repository
-        access_token (str, optional): Access token for private repositories
-
-    Returns:
-        str: The content of the file as a string
-
-    Raises:
-        ValueError: If the file cannot be fetched or if the URL is not valid
-    """
-    if type == "github":
-        return get_github_file_content(repo_url, file_path, access_token)
-    elif type == "gitlab":
-        return get_gitlab_file_content(repo_url, file_path, access_token)
-    elif type == "bitbucket":
-        return get_bitbucket_file_content(repo_url, file_path, access_token)
-    else:
-        raise ValueError("Unsupported repository URL. Only GitHub and GitLab are supported.")
 
 class DatabaseManager:
     """
@@ -825,10 +802,11 @@ class DatabaseManager:
         # Extract owner and repo name to create unique identifier
         url_parts = repo_url_or_path.rstrip('/').split('/')
 
-        if repo_type in ["github", "gitlab", "bitbucket"] and len(url_parts) >= 5:
+        if repo_type in ["github", "gitlab", "bitbucket", "gitee"] and len(url_parts) >= 5:
             # GitHub URL format: https://github.com/owner/repo
             # GitLab URL format: https://gitlab.com/owner/repo or https://gitlab.com/group/subgroup/repo
             # Bitbucket URL format: https://bitbucket.org/owner/repo
+            # Gitee URL format: https://gitee.com/owner/repo
             owner = url_parts[-2]
             repo = url_parts[-1].replace(".git", "")
             repo_name = f"{owner}_{repo}"
