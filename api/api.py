@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,6 +57,7 @@ class ProcessedProjectEntry(BaseModel):
     repo_type: str # Renamed from type to repo_type for clarity with existing models
     submittedAt: int # Timestamp
     language: str # Extracted from filename
+    branch: Optional[str] = None # Branch name if specified
 
 class RepoInfo(BaseModel):
     owner: str
@@ -406,14 +408,34 @@ app.add_websocket_route("/ws/chat", handle_websocket_chat)
 WIKI_CACHE_DIR = os.path.join(get_adalflow_default_root_path(), "wikicache")
 os.makedirs(WIKI_CACHE_DIR, exist_ok=True)
 
-def get_wiki_cache_path(owner: str, repo: str, repo_type: str, language: str) -> str:
-    """Generates the file path for a given wiki cache."""
-    filename = f"deepwiki_cache_{repo_type}_{owner}_{repo}_{language}.json"
+def get_wiki_cache_path(owner: str, repo: str, repo_type: str, language: str, branch: str = None) -> str:
+    """Generates the file path for a given wiki cache.
+    
+    Args:
+        owner (str): Repository owner
+        repo (str): Repository name
+        repo_type (str): Repository type (github, gitlab, etc.)
+        language (str): Language code
+        branch (str, optional): Branch name. If None, uses default branch.
+    """
+    filename = f"deepwiki_cache_{repo_type}_{owner}_{repo}_{language}"
+    if branch:
+        safe_branch = branch.replace("/", "_").replace("\\", "_")
+        filename += f"_branch_{safe_branch}"
+    filename += ".json"
     return os.path.join(WIKI_CACHE_DIR, filename)
 
-async def read_wiki_cache(owner: str, repo: str, repo_type: str, language: str) -> Optional[WikiCacheData]:
-    """Reads wiki cache data from the file system."""
-    cache_path = get_wiki_cache_path(owner, repo, repo_type, language)
+async def read_wiki_cache(owner: str, repo: str, repo_type: str, language: str, branch: str = None) -> Optional[WikiCacheData]:
+    """Reads wiki cache data from the file system.
+    
+    Args:
+        owner (str): Repository owner
+        repo (str): Repository name
+        repo_type (str): Repository type (github, gitlab, etc.)
+        language (str): Language code
+        branch (str, optional): Branch name. If None, uses default branch.
+    """
+    cache_path = get_wiki_cache_path(owner, repo, repo_type, language, branch)
     if os.path.exists(cache_path):
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
@@ -426,7 +448,13 @@ async def read_wiki_cache(owner: str, repo: str, repo_type: str, language: str) 
 
 async def save_wiki_cache(data: WikiCacheRequest) -> bool:
     """Saves wiki cache data to the file system."""
-    cache_path = get_wiki_cache_path(data.repo.owner, data.repo.repo, data.repo.type, data.language)
+    cache_path = get_wiki_cache_path(
+        data.repo.owner,
+        data.repo.repo,
+        data.repo.type,
+        data.language,
+        getattr(data.repo, 'branch', None)
+    )
     logger.info(f"Attempting to save wiki cache. Path: {cache_path}")
     try:
         payload = WikiCacheData(
@@ -464,7 +492,8 @@ async def get_cached_wiki(
     owner: str = Query(..., description="Repository owner"),
     repo: str = Query(..., description="Repository name"),
     repo_type: str = Query(..., description="Repository type (e.g., github, gitlab)"),
-    language: str = Query(..., description="Language of the wiki content")
+    language: str = Query(..., description="Language of the wiki content"),
+    branch: str = Query(None, description="Branch name (optional)")
 ):
     """
     Retrieves cached wiki data (structure and generated pages) for a repository.
@@ -475,7 +504,7 @@ async def get_cached_wiki(
         language = configs["lang_config"]["default"]
 
     logger.info(f"Attempting to retrieve wiki cache for {owner}/{repo} ({repo_type}), lang: {language}")
-    cached_data = await read_wiki_cache(owner, repo, repo_type, language)
+    cached_data = await read_wiki_cache(owner, repo, repo_type, language, branch)
     if cached_data:
         return cached_data
     else:
@@ -508,6 +537,7 @@ async def delete_wiki_cache(
     repo: str = Query(..., description="Repository name"),
     repo_type: str = Query(..., description="Repository type (e.g., github, gitlab)"),
     language: str = Query(..., description="Language of the wiki content"),
+    branch: str = Query(None, description="Branch name (optional)"),
     authorization_code: Optional[str] = Query(None, description="Authorization code")
 ):
     """
@@ -524,7 +554,7 @@ async def delete_wiki_cache(
             raise HTTPException(status_code=401, detail="Authorization code is invalid")
 
     logger.info(f"Attempting to delete wiki cache for {owner}/{repo} ({repo_type}), lang: {language}")
-    cache_path = get_wiki_cache_path(owner, repo, repo_type, language)
+    cache_path = get_wiki_cache_path(owner, repo, repo_type, language, branch)
 
     if os.path.exists(cache_path):
         try:
@@ -579,7 +609,8 @@ async def root():
 async def get_processed_projects():
     """
     Lists all processed projects found in the wiki cache directory.
-    Projects are identified by files named like: deepwiki_cache_{repo_type}_{owner}_{repo}_{language}.json
+    Projects are identified by files named like:
+    deepwiki_cache_{repo_type}_{owner}_{repo}_{language}[_branch_{branch_name}].json
     """
     project_entries: List[ProcessedProjectEntry] = []
     # WIKI_CACHE_DIR is already defined globally in the file
@@ -590,6 +621,7 @@ async def get_processed_projects():
             return []
 
         logger.info(f"Scanning for project cache files in: {WIKI_CACHE_DIR}")
+        
         filenames = await asyncio.to_thread(os.listdir, WIKI_CACHE_DIR) # Use asyncio.to_thread for os.listdir
 
         for filename in filenames:
@@ -599,14 +631,21 @@ async def get_processed_projects():
                     stats = await asyncio.to_thread(os.stat, file_path) # Use asyncio.to_thread for os.stat
                     parts = filename.replace("deepwiki_cache_", "").replace(".json", "").split('_')
 
-                    # Expecting repo_type_owner_repo_language
+                    # Expecting repo_type_owner_repo_language[_branch_branchName]
                     # Example: deepwiki_cache_github_AsyncFuncAI_deepwiki-open_en.json
-                    # parts = [github, AsyncFuncAI, deepwiki-open, en]
+                    # or: deepwiki_cache_github_AsyncFuncAI_deepwiki-open_en_branch_main.json
                     if len(parts) >= 4:
                         repo_type = parts[0]
                         owner = parts[1]
-                        language = parts[-1] # language is the last part
+                        language = parts[-1] # language is the last part (or before branch)
                         repo = "_".join(parts[2:-1]) # repo can contain underscores
+                        
+                        # Check for branch suffix
+                        branch = None
+                        if len(parts) >= 6 and parts[-2] == "branch":
+                            language = parts[-3] # language is now before branch
+                            branch = parts[-1]
+                            repo = "_".join(parts[2:-3]) # adjust repo parts
 
                         project_entries.append(
                             ProcessedProjectEntry(
@@ -616,7 +655,8 @@ async def get_processed_projects():
                                 name=f"{owner}/{repo}",
                                 repo_type=repo_type,
                                 submittedAt=int(stats.st_mtime * 1000), # Convert to milliseconds
-                                language=language
+                                language=language,
+                                branch=branch
                             )
                         )
                     else:

@@ -13,6 +13,7 @@ interface ProcessedProject {
   repo_type: string;
   submittedAt: number;
   language: string;
+  branch?: string;
 }
 
 interface ProcessedProjectsProps {
@@ -218,6 +219,11 @@ export default function ProcessedProjects({
                     <span className="px-2 py-1 text-xs bg-[var(--background)] text-[var(--muted)] rounded-full border border-[var(--border-color)]">
                       {project.language}
                     </span>
+                    {project.branch && (
+                      <span className="px-2 py-1 text-xs bg-[var(--highlight)]/10 text-[var(--highlight)] rounded-full border border-[var(--highlight)]/20">
+                        {project.branch}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-[var(--muted)]">
                     {t('processedOn')} {new Date(project.submittedAt).toLocaleDateString()}
@@ -243,7 +249,7 @@ export default function ProcessedProjects({
                       {project.name}
                     </h3>
                     <p className="text-xs text-[var(--muted)] mt-1">
-                      {t('processedOn')} {new Date(project.submittedAt).toLocaleDateString()} • {project.repo_type} • {project.language}
+                      {t('processedOn')} {new Date(project.submittedAt).toLocaleDateString()} • {project.repo_type} • {project.language} {project.branch && `• ${project.branch}`}
                     </p>
                   </div>
                   <div className="flex gap-2 ml-4">

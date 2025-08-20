@@ -818,8 +818,8 @@ class DatabaseManager:
         """
         Download and prepare all paths.
         Paths:
-        ~/.adalflow/repos/{owner}_{repo_name} (for url, local path will be the same)
-        ~/.adalflow/databases/{owner}_{repo_name}.pkl
+        ~/.adalflow/repos/{owner}_{repo_name}[_branch_{branch_name}] (for url, local path will be the same)
+        ~/.adalflow/databases/{owner}_{repo_name}[_branch_{branch_name}].pkl
 
         Args:
             repo_url_or_path (str): The URL or local path of the repository
@@ -837,6 +837,11 @@ class DatabaseManager:
                 # Extract the repository name from the URL
                 repo_name = self._extract_repo_name_from_url(repo_url_or_path, repo_type)
                 logger.info(f"Extracted repo name: {repo_name}")
+
+                # Add branch suffix if specified
+                if branch:
+                    safe_branch = branch.replace("/", "_").replace("\\", "_")
+                    repo_name = f"{repo_name}_branch_{safe_branch}"
 
                 save_repo_dir = os.path.join(root_path, "repos", repo_name)
 
