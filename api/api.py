@@ -64,6 +64,7 @@ class RepoInfo(BaseModel):
     token: Optional[str] = None
     localPath: Optional[str] = None
     repoUrl: Optional[str] = None
+    branch: Optional[str] = None
 
 
 class WikiSection(BaseModel):

@@ -21,6 +21,7 @@ const addTokensToRequestBody = (
   isCustomModel: boolean = false,
   customModel: string = '',
   language: string = 'en',
+  branch?: string
 ) => {
   if (token !== '') {
     requestBody.token = token;
@@ -34,6 +35,10 @@ const addTokensToRequestBody = (
   }
 
   requestBody.language = language;
+  
+  if (branch) {
+    requestBody.branch = branch;
+  }
 };
 
 export default function WorkshopPage() {
@@ -310,7 +315,7 @@ Make the workshop content in ${language === 'en' ? 'English' :
       };
 
       // Add tokens if available
-      addTokensToRequestBody(requestBody, token, repoInfo.type, providerParam, modelParam, isCustomModelParam, customModelParam, language);
+      addTokensToRequestBody(requestBody, token, repoInfo.type, providerParam, modelParam, isCustomModelParam, customModelParam, language, branchParam);
 
       // Use WebSocket for communication
       let content = '';

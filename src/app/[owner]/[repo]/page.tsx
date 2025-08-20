@@ -106,7 +106,8 @@ const addTokensToRequestBody = (
   excludedDirs?: string,
   excludedFiles?: string,
   includedDirs?: string,
-  includedFiles?: string
+  includedFiles?: string,
+  branch?: string | null
 ): void => {
   if (token !== '') {
     requestBody.token = token;
@@ -133,6 +134,9 @@ const addTokensToRequestBody = (
   }
   if (includedFiles) {
     requestBody.included_files = includedFiles;
+  }
+  if (branch) {
+    requestBody.branch = branch;
   }
 
 };
@@ -225,8 +229,9 @@ export default function RepoWikiPage() {
     type: repoType,
     token: token || null,
     localPath: localPath || null,
-    repoUrl: repoUrl || null
-  }), [owner, repo, repoType, localPath, repoUrl, token]);
+    repoUrl: repoUrl || null,
+    branch: branchParam || null
+  }), [owner, repo, repoType, localPath, repoUrl, token, branchParam]);
 
   // State variables
   const [isLoading, setIsLoading] = useState(true);
@@ -287,7 +292,7 @@ export default function RepoWikiPage() {
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
 
   // Default branch state
-  const [defaultBranch, setDefaultBranch] = useState<string>('main');
+  const [defaultBranch, setDefaultBranch] = useState<string>(branchParam || 'main');
 
   // Helper function to generate proper repository file URLs
   const generateFileUrl = useCallback((filePath: string): string => {
@@ -530,7 +535,7 @@ Remember:
         };
 
         // Add tokens if available
-        addTokensToRequestBody(requestBody, currentToken, effectiveRepoInfo.type, selectedProviderState, selectedModelState, isCustomSelectedModelState, customSelectedModelState, language, modelExcludedDirs, modelExcludedFiles, modelIncludedDirs, modelIncludedFiles);
+        addTokensToRequestBody(requestBody, currentToken, effectiveRepoInfo.type, selectedProviderState, selectedModelState, isCustomSelectedModelState, customSelectedModelState, language, modelExcludedDirs, modelExcludedFiles, modelIncludedDirs, modelIncludedFiles, branchParam || effectiveRepoInfo.branch);
 
         // Use WebSocket for communication
         let content = '';
@@ -827,7 +832,7 @@ IMPORTANT:
       };
 
       // Add tokens if available
-      addTokensToRequestBody(requestBody, currentToken, effectiveRepoInfo.type, selectedProviderState, selectedModelState, isCustomSelectedModelState, customSelectedModelState, language, modelExcludedDirs, modelExcludedFiles, modelIncludedDirs, modelIncludedFiles);
+      addTokensToRequestBody(requestBody, currentToken, effectiveRepoInfo.type, selectedProviderState, selectedModelState, isCustomSelectedModelState, customSelectedModelState, language, modelExcludedDirs, modelExcludedFiles, modelIncludedDirs, modelIncludedFiles, branchParam || effectiveRepoInfo.branch);
 
       // Use WebSocket for communication
       let responseText = '';
@@ -1248,33 +1253,49 @@ IMPORTANT:
           console.warn('Could not fetch repository info for default branch:', err);
         }
 
-        // Create list of branches to try, prioritizing the actual default branch
-        const branchesToTry = defaultBranchLocal 
-          ? [defaultBranchLocal, 'main', 'master'].filter((branch, index, arr) => arr.indexOf(branch) === index)
-          : ['main', 'master'];
+        // Use the specified branch parameter, or fall back to default branch detection
+        let targetBranch = branchParam || defaultBranchLocal || 'main';
+        
+        const apiUrl = `${githubApiBaseUrl}/repos/${owner}/${repo}/git/trees/${targetBranch}?recursive=1`;
+        const headers = createGithubHeaders(currentToken);
 
-        for (const branch of branchesToTry) {
-          const apiUrl = `${githubApiBaseUrl}/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
-          const headers = createGithubHeaders(currentToken);
+        console.log(`Fetching repository structure from branch: ${targetBranch}`);
+        try {
+          const response = await fetch(apiUrl, {
+            headers
+          });
 
-          console.log(`Fetching repository structure from branch: ${branch}`);
-          try {
-            const response = await fetch(apiUrl, {
-              headers
-            });
-
-            if (response.ok) {
-              treeData = await response.json();
-              console.log('Successfully fetched repository structure');
-              break;
-            } else {
+          if (response.ok) {
+            treeData = await response.json();
+            console.log('Successfully fetched repository structure');
+          } else if (response.status === 404 && !branchParam) {
+            // If branch not found and no branch parameter specified, try fallback branches
+            const fallbackBranches = ['main', 'master'];
+            for (const fallbackBranch of fallbackBranches) {
+              if (fallbackBranch !== targetBranch) {
+                const fallbackUrl = `${githubApiBaseUrl}/repos/${owner}/${repo}/git/trees/${fallbackBranch}?recursive=1`;
+                console.log(`Trying fallback branch: ${fallbackBranch}`);
+                const fallbackResponse = await fetch(fallbackUrl, { headers });
+                if (fallbackResponse.ok) {
+                  treeData = await fallbackResponse.json();
+                  console.log(`Successfully fetched from fallback branch: ${fallbackBranch}`);
+                  targetBranch = fallbackBranch;
+                  break;
+                }
+              }
+            }
+            if (!treeData) {
               const errorData = await response.text();
               apiErrorDetails = `Status: ${response.status}, Response: ${errorData}`;
               console.error(`Error fetching repository structure: ${apiErrorDetails}`);
             }
-          } catch (err) {
-            console.error(`Network error fetching branch ${branch}:`, err);
+          } else {
+            const errorData = await response.text();
+            apiErrorDetails = `Status: ${response.status}, Response: ${errorData}`;
+            console.error(`Error fetching repository structure: ${apiErrorDetails}`);
           }
+        } catch (err) {
+          console.error(`Network error fetching branch ${targetBranch}:`, err);
         }
 
         if (!treeData || !treeData.tree) {
@@ -1323,7 +1344,7 @@ IMPORTANT:
         try {
           // Step 1: Get project info to determine default branch
           let projectInfoUrl: string;
-          let defaultBranchLocal = 'main'; // fallback
+          let defaultBranchLocal = branchParam || effectiveRepoInfo.branch || 'main'; // use provided branch first
           try {
             const validatedUrl = new URL(projectDomain ?? ''); // Validate domain
             projectInfoUrl = `${validatedUrl.origin}/api/v4/projects/${encodedProjectPath}`;
@@ -1338,7 +1359,9 @@ IMPORTANT:
           }
 
           const projectInfo = await projectInfoRes.json();
-          defaultBranchLocal = projectInfo.default_branch || 'main';
+          if (!branchParam && !effectiveRepoInfo.branch) {
+            defaultBranchLocal = projectInfo.default_branch || 'main';
+          }
           console.log(`Found GitLab default branch: ${defaultBranchLocal}`);
           // Store the default branch in state
           setDefaultBranch(defaultBranchLocal);
@@ -1400,7 +1423,7 @@ IMPORTANT:
         // Try to get the file tree for common branch names
         let filesData = null;
         let apiErrorDetails = '';
-        let defaultBranchLocal = '';
+        let defaultBranchLocal = branchParam || effectiveRepoInfo.branch || '';
         const headers = createBitbucketHeaders(currentToken);
 
         // First get project info to determine default branch
@@ -1412,7 +1435,9 @@ IMPORTANT:
 
           if (response.ok) {
             const projectData = JSON.parse(responseText);
-            defaultBranchLocal = projectData.mainbranch.name;
+            if (!branchParam && !effectiveRepoInfo.branch) {
+              defaultBranchLocal = projectData.mainbranch.name;
+            }
             // Store the default branch in state
             setDefaultBranch(defaultBranchLocal);
 
@@ -1483,7 +1508,7 @@ IMPORTANT:
         // Try to get the file tree and repository info
         let filesData = null;
         let apiErrorDetails = '';
-        let defaultBranchLocal = 'main';
+        let defaultBranchLocal = branchParam || effectiveRepoInfo.branch || 'main';
 
         // First get project info to determine default branch
         const projectInfoUrl = `https://gitee.com/api/v5/repos/${apiProjectPath}`;
@@ -1492,7 +1517,9 @@ IMPORTANT:
 
           if (response.ok) {
             const projectData = await response.json();
-            defaultBranchLocal = projectData.default_branch || 'master';
+            if (!branchParam && !effectiveRepoInfo.branch) {
+              defaultBranchLocal = projectData.default_branch || 'master';
+            }
             // Store the default branch in state
             setDefaultBranch(defaultBranchLocal);
 

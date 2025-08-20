@@ -39,6 +39,10 @@ interface ConfigurationModalProps {
   accessToken: string;
   setAccessToken: (value: string) => void;
 
+  // Branch selection
+  branch: string;
+  setBranch: (value: string) => void;
+
   // File filter options
   excludedDirs: string;
   setExcludedDirs: (value: string) => void;
@@ -81,6 +85,8 @@ export default function ConfigurationModal({
   setSelectedPlatform,
   accessToken,
   setAccessToken,
+  branch,
+  setBranch,
   excludedDirs,
   setExcludedDirs,
   excludedFiles,
@@ -132,6 +138,24 @@ export default function ConfigurationModal({
               </label>
               <div className="bg-[var(--background)]/70 p-3 rounded-md border border-[var(--border-color)] text-sm text-[var(--foreground)]">
                 {repositoryInput}
+              </div>
+            </div>
+
+            {/* Branch selection */}
+            <div className="mb-4">
+              <label htmlFor="branch-input" className="block text-sm font-medium text-[var(--foreground)] mb-2">
+                {t.form?.branch || 'Branch (optional)'}
+              </label>
+              <input
+                type="text"
+                id="branch-input"
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                className="input-japanese block w-full px-3 py-2 text-sm rounded-md bg-transparent text-[var(--foreground)] focus:outline-none focus:border-[var(--accent-primary)]"
+                placeholder="main (leave empty for default branch)"
+              />
+              <div className="mt-1 text-xs text-[var(--muted)]">
+                {t.form?.branchDescription || 'Specify a branch to clone from the repository. Leave empty to use the default branch.'}
               </div>
             </div>
 

@@ -98,6 +98,7 @@ export default function Home() {
           setExcludedFiles(config.excludedFiles || '');
           setIncludedDirs(config.includedDirs || '');
           setIncludedFiles(config.includedFiles || '');
+          setBranch(config.branch || '');
         }
       }
     } catch (error) {
@@ -136,6 +137,7 @@ export default function Home() {
   const [includedFiles, setIncludedFiles] = useState('');
   const [selectedPlatform, setSelectedPlatform] = useState<'github' | 'gitlab' | 'bitbucket' | 'gitee'>('github');
   const [accessToken, setAccessToken] = useState('');
+  const [branch, setBranch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<string>(language);
@@ -324,6 +326,7 @@ export default function Home() {
           excludedFiles,
           includedDirs,
           includedFiles,
+          branch,
         };
         existingConfigs[currentRepoUrl] = configToSave;
         localStorage.setItem(REPO_CONFIG_CACHE_KEY, JSON.stringify(existingConfigs));
@@ -376,6 +379,9 @@ export default function Home() {
     }
     if (includedFiles) {
       params.append('included_files', includedFiles);
+    }
+    if (branch) {
+      params.append('branch', branch);
     }
 
     // Add language parameter
@@ -464,6 +470,8 @@ export default function Home() {
             setSelectedPlatform={setSelectedPlatform}
             accessToken={accessToken}
             setAccessToken={setAccessToken}
+            branch={branch}
+            setBranch={setBranch}
             excludedDirs={excludedDirs}
             setExcludedDirs={setExcludedDirs}
             excludedFiles={excludedFiles}

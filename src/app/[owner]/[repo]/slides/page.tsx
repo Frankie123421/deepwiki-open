@@ -20,6 +20,7 @@ const addTokensToRequestBody = (
   isCustomModel: boolean = false,
   customModel: string = '',
   language: string = 'en',
+  branch?: string
 ) => {
   if (token !== '') {
     requestBody.token = token;
@@ -33,6 +34,10 @@ const addTokensToRequestBody = (
   }
 
   requestBody.language = language;
+  
+  if (branch) {
+    requestBody.branch = branch;
+  }
 };
 
 interface Slide {
@@ -61,6 +66,7 @@ export default function SlidesPage() {
   const isCustomModelParam = searchParams.get('is_custom_model') === 'true';
   const customModelParam = searchParams.get('custom_model') || '';
   const language = searchParams.get('language') || 'en';
+  const branchParam = searchParams.get('branch') || '';
 
   // Import language context for translations
   const { messages } = useLanguage();
@@ -258,7 +264,7 @@ Give me the numbered list with brief descriptions for each slide. Be creative bu
       };
 
       // Add tokens if available
-      addTokensToRequestBody(planRequestBody, token, repoInfo.type, providerParam, modelParam, isCustomModelParam, customModelParam, language);
+      addTokensToRequestBody(planRequestBody, token, repoInfo.type, providerParam, modelParam, isCustomModelParam, customModelParam, language, branchParam);
 
       // Use WebSocket for communication
       let planContent = '';
@@ -534,7 +540,7 @@ Please return ONLY the HTML with no markdown formatting or code blocks. Just the
         };
 
         // Add tokens if available
-        addTokensToRequestBody(slideRequestBody, token, repoInfo.type, providerParam, modelParam, isCustomModelParam, customModelParam, language);
+        addTokensToRequestBody(slideRequestBody, token, repoInfo.type, providerParam, modelParam, isCustomModelParam, customModelParam, language, branchParam);
 
         // Use WebSocket for communication
         let slideContent = '';
